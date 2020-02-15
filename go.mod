@@ -9,6 +9,7 @@ require (
 	github.com/kevinburke/ssh_config v0.0.0-20190725054713-01f96b0aa0cd
 	github.com/konsorten/go-windows-terminal-sequences v1.0.2 // indirect
 	github.com/pkg/errors v0.9.1
+	github.com/pkg/sftp v1.11.0
 	github.com/sirupsen/logrus v1.4.2
 	github.com/xtaci/smux v1.5.11
 	golang.org/x/crypto v0.0.0-20200210222208-86ce3cb69678

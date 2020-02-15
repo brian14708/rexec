@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"fmt"
 	"sort"
 )
 
@@ -10,6 +11,7 @@ const (
 	BindReadWrite BindType = iota
 	BindReadOnly
 	BindTmpFS
+	BindSymlink
 )
 
 type Spec struct {
@@ -18,13 +20,8 @@ type Spec struct {
 	WorkingDir string
 	Env        []string
 
-	// namespace
+	Bind             []BindSpec
 	UnshareNamespace bool
-
-	// paths
-	ReadOnlyBind map[string]string
-	Bind         map[string]string
-	TmpFS        []string
 }
 
 type BindSpec struct {
@@ -61,25 +58,34 @@ func (s *Spec) commandArgs() (prefix []string, args []string, exe []string) {
 		{"/dev", "", "--dev"},
 		{"/proc", "", "--proc"},
 	}
-	for dst, src := range s.ReadOnlyBind {
-		allMappings = append(allMappings, pathMapping{
-			dst, src, "--ro-bind",
-		})
+	for _, b := range s.Bind {
+		switch b.Type {
+		case BindReadOnly:
+			allMappings = append(allMappings, pathMapping{
+				b.Dst, b.Src, "--ro-bind",
+			})
+		case BindReadWrite:
+			allMappings = append(allMappings, pathMapping{
+				b.Dst, b.Src, "--bind",
+			})
+		case BindTmpFS:
+			allMappings = append(allMappings, pathMapping{
+				b.Dst, "", "--tmpfs",
+			})
+		case BindSymlink:
+			allMappings = append(allMappings, pathMapping{
+				b.Dst, b.Src, "--symlink",
+			})
+		}
 	}
-	for _, t := range s.TmpFS {
-		allMappings = append(allMappings, pathMapping{
-			t, "", "--tmpfs",
-		})
-	}
-	for dst, src := range s.Bind {
-		allMappings = append(allMappings, pathMapping{
-			dst, src, "--bind",
-		})
-	}
-	sort.Slice(allMappings, func(i, j int) bool {
+	sort.SliceStable(allMappings, func(i, j int) bool {
 		return allMappings[i].dst < allMappings[j].dst
 	})
-	for _, m := range allMappings {
+
+	for i, m := range allMappings {
+		if i+1 < len(allMappings) && allMappings[i+1].dst == m.dst {
+			continue
+		}
 		if m.src == "" {
 			args = append(args, m.mode, m.dst)
 		} else {
@@ -114,4 +120,21 @@ func (s *Spec) commandArgs() (prefix []string, args []string, exe []string) {
 func (s *Spec) CommandArgs() []string {
 	p, a, e := s.commandArgs()
 	return append(append(p, a...), e...)
+}
+
+func (b *BindType) UnmarshalText(text []byte) error {
+	str := string(text)
+	switch str {
+	case "rw":
+		*b = BindReadWrite
+	case "ro":
+		*b = BindReadOnly
+	case "tmpfs":
+		*b = BindTmpFS
+	case "symlink":
+		*b = BindSymlink
+	default:
+		return fmt.Errorf("invalid bind-type: %s", str)
+	}
+	return nil
 }

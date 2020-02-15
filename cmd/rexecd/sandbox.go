@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -14,36 +15,44 @@ import (
 )
 
 func execSandbox(configDir string, config Config) {
-	roBind := map[string]string{}
-	bind := map[string]string{
-		configDir: configDir,
-	}
-	for _, p := range config.Paths.ReadOnly {
-		roBind[p] = sanitizePath(p)
-	}
-	/*
-		for _, p := range config.Paths.Hidden {
-			tmp := filepath.Join(tmpdir, fmt.Sprintf("%x", md5.Sum([]byte(p)))[:12])
-			err := os.MkdirAll(tmp, os.ModePerm)
-			if err != nil {
-				log.Fatalf("cannot make temp directory: %v", err)
-			}
-			bind[p] = sanitizePath(tmp)
-		}
-	*/
-	for _, p := range config.Paths.Writable {
-		bind[p] = sanitizePath(p)
-	}
-
-	cmd := self()
-	args := append(os.Args[1:], "--no-sandbox")
+	cmd := "/run/rexec"
+	args := append(os.Args[1:], "--no-sandbox", "--config-dir=/run/config")
 
 	spec := &sandbox.Spec{
-		Command:      cmd,
-		Args:         args,
-		ReadOnlyBind: roBind,
-		Bind:         bind,
+		Command: cmd,
+		Args:    args,
 	}
+	for _, b := range config.Environment.Bind {
+		src := b.Source
+		if src == "" {
+			src = b.Path
+		}
+		spec.Bind = append(spec.Bind, sandbox.BindSpec{
+			Dst:  b.Path,
+			Src:  src,
+			Type: b.Mode,
+		})
+	}
+	spec.Bind = append(spec.Bind, sandbox.BindSpec{
+		Dst:  cmd,
+		Src:  self(),
+		Type: sandbox.BindReadOnly,
+	})
+	spec.Bind = append(spec.Bind, sandbox.BindSpec{
+		Dst:  "/run/config",
+		Src:  configDir,
+		Type: sandbox.BindReadWrite,
+	})
+	if e := os.Getenv("SSH_AUTH_SOCK"); e != "" {
+		spec.Bind = append(spec.Bind, sandbox.BindSpec{
+			Dst:  "/run/ssh.sock",
+			Src:  e,
+			Type: sandbox.BindReadWrite,
+		})
+		spec.Env = append(spec.Env, "SSH_AUTH_SOCK=/run/ssh.sock")
+	}
+
+	fmt.Println(spec.CommandArgs())
 	cc, _ := sandbox.Exec(context.TODO(), spec)
 	defer cc.Close()
 
@@ -75,7 +84,7 @@ func execSandbox(configDir string, config Config) {
 	err := cc.Run()
 	exitCode := 0
 	if err != nil {
-		exitCode = 255
+		exitCode = -1
 		if e, ok := err.(*exec.ExitError); ok {
 			exitCode = e.ExitCode()
 		}

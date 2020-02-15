@@ -67,13 +67,15 @@ func New(cfg Config) (*Conn, error) {
 	}
 
 	config := &ssh.ClientConfig{
-		User: user,
-		Auth: []ssh.AuthMethod{
-			agentAuth(),
-			passwordAuth(),
-		},
+		User:            user,
 		HostKeyCallback: hostKeyCheck,
 		Timeout:         cfg.DialTimeout,
+	}
+	if a := agentAuth(); a != nil {
+		config.Auth = append(config.Auth, a)
+	}
+	if a := passwordAuth(); a != nil {
+		config.Auth = append(config.Auth, a)
 	}
 
 	sshc, err := ssh.Dial("tcp", host+":"+port, config)

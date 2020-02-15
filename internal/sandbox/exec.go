@@ -74,6 +74,15 @@ func (c *Cmd) InfoFile() (io.Reader, error) {
 	return f, nil
 }
 
+func (c *Cmd) AddFile(path string) (io.WriteCloser, error) {
+	fd, f, err := c.addWritePipe()
+	if err != nil {
+		return nil, err
+	}
+	c.args = append(c.args, "--file", fmt.Sprintf("%d", fd), path)
+	return f, nil
+}
+
 func (c *Cmd) Run() error {
 	c.cmd.Stdout = c.Stdout
 	c.cmd.Stderr = c.Stderr

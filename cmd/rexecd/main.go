@@ -22,13 +22,16 @@ import (
 
 var (
 	flagNoSandbox = flag.Bool("no-sandbox", false, "Run without sandbox")
+	flagConfigDir = flag.String("config-dir", "", "")
 )
 
 type Config struct {
-	Paths struct {
-		ReadOnly []string
-		Writable []string
-		Hidden   []string
+	Environment struct {
+		Bind []struct {
+			Path   string
+			Source string
+			Mode   sandbox.BindType
+		}
 	}
 	Servers map[string]struct {
 		Host string
@@ -40,15 +43,17 @@ type Config struct {
 func main() {
 	flag.Parse()
 
-	configDir := cmdutil.ConfigDir()
+	configDir := *flagConfigDir
+	if configDir == "" {
+		configDir = cmdutil.ConfigDir()
+	}
+	fmt.Println(configDir)
 
 	var config Config
 	_, err := toml.DecodeFile(filepath.Join(configDir, "config.toml"), &config)
 	if err != nil {
 		logrus.Fatalf("cannot find parse config file: %v", err)
 	}
-	fmt.Println(config)
-	os.Exit(1)
 
 	if !*flagNoSandbox {
 		execSandbox(configDir, config)
@@ -73,6 +78,7 @@ func main() {
 		}
 		conns[name] = conn
 		conn.RemoteMount(context.TODO(), "/", fmt.Sprintf("/tmp/rexec-%s-%s", "hostname", name), "-o kernel_cache -o auto_cache -o negative_timeout=5 -o entry_timeout=5 -o attr_timeout=5 -o max_readahead=90000")
+		// TODO check error
 	}
 
 	sockPath := filepath.Join(configDir, "daemon.sock")
@@ -171,11 +177,12 @@ func handleConnection(c net.Conn, conn *sshconn.Conn) {
 		Env: append(req.Exec.Env,
 			"REXEC=1",
 		),
-		Bind: map[string]string{
-			"/": "/tmp/rexec-hostname-local",
-		},
-		TmpFS: []string{
-			os.Getenv("REXEC_TMPDIR"),
+		Bind: []sandbox.BindSpec{
+			sandbox.BindSpec{
+				Dst:  "/",
+				Src:  "/tmp/rexec-hostname-local",
+				Type: sandbox.BindReadWrite,
+			},
 		},
 		UnshareNamespace: true,
 	}

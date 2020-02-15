@@ -1,8 +1,9 @@
 package sandbox
 
 import (
+	"fmt"
 	"os"
-	osuser "os/user"
+	"syscall"
 
 	"github.com/sirupsen/logrus"
 )
@@ -14,17 +15,13 @@ var (
 )
 
 func init() {
-	user, err := osuser.Current()
-	if err != nil {
-		logrus.Fatalf("cannot get current user: %v", err)
-	}
 
 	hostname, err := os.Hostname()
 	if err != nil {
 		logrus.Fatalf("cannot get hostname: %v", err)
 	}
 
-	currentUid = user.Uid
-	currentGid = user.Gid
+	currentUid = fmt.Sprintf("%d", syscall.Getuid())
+	currentGid = fmt.Sprintf("%d", syscall.Getgid())
 	currentHostname = hostname
 }

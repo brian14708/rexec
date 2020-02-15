@@ -3,21 +3,19 @@ package sshconn
 import (
 	"context"
 	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
+	"io"
 	"sync/atomic"
-	"syscall"
 
 	"github.com/alessio/shellescape"
 	"github.com/pkg/errors"
+	"github.com/pkg/sftp"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/crypto/ssh"
 )
 
 type MountTask struct {
-	errCh      <-chan error
-	cancelFunc context.CancelFunc
+	errCh <-chan error
+	sess  *ssh.Session
 }
 
 func (m *MountTask) Wait() error {
@@ -28,24 +26,9 @@ func (m *MountTask) Wait() error {
 }
 
 func (m *MountTask) stop() {
-	m.cancelFunc()
+	m.sess.Signal(ssh.SIGTERM)
+	m.sess.Close()
 	m.Wait()
-}
-
-func findSSHBinary(name string) (string, error) {
-	dirs := []string{
-		"/usr/lib/openssh",
-		"/usr/lib/ssh",
-		"/usr/lib64/ssh",
-	}
-	for _, dir := range dirs {
-		path := filepath.Join(dir, name)
-		stat, err := os.Stat(path)
-		if err == nil && stat.Mode()&syscall.S_IEXEC != 0 {
-			return path, nil
-		}
-	}
-	return "", fmt.Errorf("cannot find binary: %s", name)
 }
 
 // mount local dir to remote
@@ -53,42 +36,34 @@ func (c *Conn) RemoteMount(ctx context.Context, local string, remote string, ext
 	local = shellescape.Quote(local)
 	remote = shellescape.Quote(remote)
 
-	sftpBin, err := findSSHBinary("sftp-server")
-	if err != nil {
-		return nil, err
-	}
-
 	sess, err := c.sshc.NewSession()
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create ssh session")
 	}
 
-	cctx, cancel := context.WithCancel(ctx)
-	sftp := exec.CommandContext(cctx, sftpBin, "-e", "-l", "INFO")
-
-	sess.Stdin, err = sftp.StdoutPipe()
+	r, err := sess.StdoutPipe()
 	if err != nil {
-		cancel()
-		return nil, errors.Wrap(err, "failed to connect sftp stdout")
+		return nil, errors.Wrap(err, "failed to connect session stdout")
 	}
-	sess.Stdout, err = sftp.StdinPipe()
+	w, err := sess.StdinPipe()
 	if err != nil {
-		cancel()
-		return nil, errors.Wrap(err, "failed to connect sftp stdin")
+		return nil, errors.Wrap(err, "failed to connect session stdin")
 	}
-
-	sftp.Stderr = logrus.WithFields(logrus.Fields{"module": "sftp-server"}).WriterLevel(logrus.ErrorLevel)
 	sess.Stderr = logrus.WithFields(logrus.Fields{"module": "sshfs"}).WriterLevel(logrus.ErrorLevel)
-
-	err = sftp.Start()
+	srv, err := sftp.NewServer(struct {
+		io.Reader
+		io.WriteCloser
+	}{
+		r, w,
+	},
+		sftp.WithDebug(logrus.WithFields(logrus.Fields{"module": "sftp"}).WriterLevel(logrus.ErrorLevel)),
+	)
 	if err != nil {
-		cancel()
-		return nil, errors.Wrap(err, "sftp-server failed to start")
+		return nil, errors.Wrap(err, "failed to create sftp server")
 	}
 
-	err = sess.Start(fmt.Sprintf("mkdir -p %s && sshfs %s -o slave :%s %s", remote, extraArgs, local, remote))
+	err = sess.Start(fmt.Sprintf("mkdir -p %s && sshfs %s -o idmap=user -o slave :%s %s", remote, extraArgs, local, remote))
 	if err != nil {
-		cancel()
 		return nil, errors.Wrap(err, "failed to start sshfs")
 	}
 
@@ -104,9 +79,13 @@ func (c *Conn) RemoteMount(ctx context.Context, local string, remote string, ext
 		}
 	}
 
+	mnt := &MountTask{
+		errCh: ch,
+		sess:  sess,
+	}
+
 	go func() {
-		err := sftp.Wait()
-		fmt.Println("SFTP", err)
+		err := srv.Serve()
 		putError(err)
 		sess.Signal(ssh.SIGTERM)
 		sess.Close()
@@ -114,17 +93,11 @@ func (c *Conn) RemoteMount(ctx context.Context, local string, remote string, ext
 
 	go func() {
 		err := sess.Wait()
-		fmt.Println("SSHFS", err)
 		putError(err)
-		cancel()
+		sess.Close()
 	}()
 
-	mnt := &MountTask{
-		errCh:      ch,
-		cancelFunc: cancel,
-	}
-
-	cmd, err := c.RunCommandRaw(cctx, fmt.Sprintf(`
+	cmd, err := c.RunCommandRaw(ctx, fmt.Sprintf(`
 sleep 0.1
 for i in $(seq 0 10); do
 	mountpoint -q %s && exit 0
