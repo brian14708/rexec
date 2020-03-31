@@ -34,6 +34,10 @@ func execSandbox(configDir string, config Config) {
 		})
 	}
 	spec.Bind = append(spec.Bind, sandbox.BindSpec{
+		Dst:  "/run",
+		Type: sandbox.BindTmpFS,
+	})
+	spec.Bind = append(spec.Bind, sandbox.BindSpec{
 		Dst:  cmd,
 		Src:  self(),
 		Type: sandbox.BindReadOnly,

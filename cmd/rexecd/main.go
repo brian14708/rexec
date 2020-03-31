@@ -183,6 +183,32 @@ func handleConnection(c net.Conn, conn *sshconn.Conn) {
 				Src:  "/tmp/rexec-hostname-local",
 				Type: sandbox.BindReadWrite,
 			},
+			sandbox.BindSpec{
+				Dst:  "/etc/resolv.conf",
+				Src:  "/etc/resolv.conf",
+				Type: sandbox.BindReadOnly,
+			},
+			sandbox.BindSpec{
+				Dst:  "/sys",
+				Src:  "/sys",
+				Type: sandbox.BindReadOnly,
+			},
+			sandbox.BindSpec{
+				Dst:  "/run",
+				Type: sandbox.BindTmpFS,
+			},
+			sandbox.BindSpec{
+				Dst:  "/tmp",
+				Type: sandbox.BindTmpFS,
+			},
+			sandbox.BindSpec{
+				Dst:  "/dev",
+				Type: sandbox.BindDevFS,
+			},
+			sandbox.BindSpec{
+				Dst:  "/proc",
+				Type: sandbox.BindProcFS,
+			},
 		},
 		UnshareNamespace: true,
 	}

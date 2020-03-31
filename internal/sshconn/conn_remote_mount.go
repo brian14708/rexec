@@ -9,7 +9,6 @@ import (
 	"github.com/alessio/shellescape"
 	"github.com/pkg/errors"
 	"github.com/pkg/sftp"
-	"github.com/sirupsen/logrus"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -49,20 +48,24 @@ func (c *Conn) RemoteMount(ctx context.Context, local string, remote string, ext
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to connect session stdin")
 	}
-	sess.Stderr = logrus.WithFields(logrus.Fields{"module": "sshfs"}).WriterLevel(logrus.ErrorLevel)
 	srv, err := sftp.NewServer(struct {
 		io.Reader
 		io.WriteCloser
 	}{
 		r, w,
-	},
-		sftp.WithDebug(logrus.WithFields(logrus.Fields{"module": "sftp"}).WriterLevel(logrus.ErrorLevel)),
-	)
+	})
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create sftp server")
 	}
 
-	err = sess.Start(fmt.Sprintf("mkdir -p %s && sshfs %s -o idmap=user -o slave :%s %s", remote, extraArgs, local, remote))
+	err = sess.Start(fmt.Sprintf(`
+cleanup() {
+	rmdir %s
+}
+trap cleanup EXIT
+mkdir %s
+sshfs %s -o idmap=user -o slave :%s %s
+`, remote, remote, extraArgs, local, remote))
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to start sshfs")
 	}

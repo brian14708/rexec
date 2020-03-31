@@ -12,6 +12,8 @@ const (
 	BindReadOnly
 	BindTmpFS
 	BindSymlink
+	BindProcFS
+	BindDevFS
 )
 
 type Spec struct {
@@ -51,39 +53,41 @@ func (s *Spec) commandArgs() (prefix []string, args []string, exe []string) {
 		src  string
 		mode string
 	}
-	allMappings := []pathMapping{
-		{"/etc/resolv.conf", "/etc/resolv.conf", "--ro-bind"},
-		{"/sys", "/sys", "--ro-bind"},
-		{"/run", "", "--tmpfs"},
-		{"/dev", "", "--dev"},
-		{"/proc", "", "--proc"},
-	}
+	var mappings []pathMapping
 	for _, b := range s.Bind {
 		switch b.Type {
 		case BindReadOnly:
-			allMappings = append(allMappings, pathMapping{
+			mappings = append(mappings, pathMapping{
 				b.Dst, b.Src, "--ro-bind",
 			})
 		case BindReadWrite:
-			allMappings = append(allMappings, pathMapping{
+			mappings = append(mappings, pathMapping{
 				b.Dst, b.Src, "--bind",
 			})
 		case BindTmpFS:
-			allMappings = append(allMappings, pathMapping{
+			mappings = append(mappings, pathMapping{
 				b.Dst, "", "--tmpfs",
 			})
 		case BindSymlink:
-			allMappings = append(allMappings, pathMapping{
+			mappings = append(mappings, pathMapping{
 				b.Dst, b.Src, "--symlink",
+			})
+		case BindProcFS:
+			mappings = append(mappings, pathMapping{
+				b.Dst, "", "--proc",
+			})
+		case BindDevFS:
+			mappings = append(mappings, pathMapping{
+				b.Dst, "", "--dev",
 			})
 		}
 	}
-	sort.SliceStable(allMappings, func(i, j int) bool {
-		return allMappings[i].dst < allMappings[j].dst
+	sort.SliceStable(mappings, func(i, j int) bool {
+		return mappings[i].dst < mappings[j].dst
 	})
 
-	for i, m := range allMappings {
-		if i+1 < len(allMappings) && allMappings[i+1].dst == m.dst {
+	for i, m := range mappings {
+		if i+1 < len(mappings) && mappings[i+1].dst == m.dst {
 			continue
 		}
 		if m.src == "" {
@@ -133,6 +137,10 @@ func (b *BindType) UnmarshalText(text []byte) error {
 		*b = BindTmpFS
 	case "symlink":
 		*b = BindSymlink
+	case "procfs":
+		*b = BindProcFS
+	case "devfs":
+		*b = BindDevFS
 	default:
 		return fmt.Errorf("invalid bind-type: %s", str)
 	}

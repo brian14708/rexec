@@ -8,7 +8,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/kevinburke/ssh_config"
 	"github.com/pkg/errors"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
@@ -30,31 +29,20 @@ type Conn struct {
 
 func New(cfg Config) (*Conn, error) {
 	host := cfg.Host
-	if altHost := ssh_config.Get(host, "Hostname"); altHost != "" {
-		host = altHost
-	}
 
 	port := cfg.Port
 	if port == "" {
-		if altPort := ssh_config.Get(host, "Port"); altPort != "" {
-			port = altPort
-		} else {
-			port = "22"
-		}
+		port = "22"
 	}
 	fmt.Println(host, port)
 
 	user := cfg.User
 	if user == "" {
-		if altUser := ssh_config.Get(host, "User"); altUser != "" {
-			user = altUser
-		} else {
-			currentUser, err := osuser.Current()
-			if err != nil {
-				return nil, errors.Wrap(err, "failed to get current user")
-			}
-			user = currentUser.Username
+		currentUser, err := osuser.Current()
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to get current user")
 		}
+		user = currentUser.Username
 	}
 
 	hostKeyCheck := ssh.InsecureIgnoreHostKey()

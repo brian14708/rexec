@@ -52,13 +52,12 @@ func main() {
 
 		cols, lines, err = terminal.GetSize(syscall.Stdin)
 		if err != nil {
-			logrus.Warnf("cannot get current terminal dimensions: %v", err)
+			logrus.Fatalf("cannot get current terminal dimensions: %v", err)
 			cols = 80
 			lines = 40
 		}
 		term = os.Getenv("TERM")
 		if term == "" {
-			logrus.Warnf("cannot get current terminal type")
 			term = "vt100"
 		}
 	}
